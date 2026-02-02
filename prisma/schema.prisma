@@ -1,0 +1,276 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// CONFIGURAÇÕES GLOBAIS
+// ==========================================
+
+model Configuracao {
+  id                    String   @id @default(cuid())
+  metodoConstrutivo     String   @default("A") // A, B ou C
+  espessuraCorpo        Float    @default(15)
+  espessuraFundoModulo  Float    @default(6)
+  espessuraPorta        Float    @default(18)
+  espessuraTamponamento Float    @default(18)
+  espessuraFundoGaveta  Float    @default(6)
+  margemLucro           Float    @default(100) // percentual
+  multiplicadorMaterial Float    @default(2.8)
+  valorMetroQuadrado    Float    @default(945)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ==========================================
+// CADASTRO DE MATERIAIS
+// ==========================================
+
+model Chapa {
+  id              String   @id @default(cuid())
+  nome            String
+  espessura       Float    // em mm
+  valorChapa      Float    // preço da chapa inteira
+  larguraChapa    Float    @default(2750) // mm
+  alturaChapa     Float    @default(1850) // mm
+  custoM2ComPerda Float    // calculado
+  ativo           Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  pecas Peca[]
+}
+
+model Borda {
+  id           String   @id @default(cuid())
+  nome         String
+  largura      Float    // em mm (22mm, 45mm, etc)
+  valorRolo    Float
+  metrosRolo   Float
+  custoMetro   Float    // calculado: valorRolo / metrosRolo
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Acessorio {
+  id            String   @id @default(cuid())
+  nome          String
+  categoria     String   // dobradica, puxador, pistao, cantoneira, corrediça, etc
+  descricao     String?
+  valorUnitario Float
+  unidade       String   @default("un") // un, metro, kg
+  ativo         Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  moduloAcessorios ModuloAcessorio[]
+  projetoAcessorios ProjetoAcessorio[]
+}
+
+// ==========================================
+// TEMPLATES DE MÓDULOS
+// ==========================================
+
+model ModuloTemplate {
+  id          String   @id @default(cuid())
+  nome        String   // "Base Inferior - Porta de Abrir"
+  codigo      String   @unique // "BI-PORTA-ABRIR"
+  categoria   String   // "base_inferior", "aereo", "torre", "bancada"
+  descricao   String?
+  imagemUrl   String?
+
+  // Configurações padrão
+  larguraPadrao       Float  @default(600)
+  alturaPadrao        Float  @default(720)
+  profundidadePadrao  Float  @default(560)
+
+  // Componentes do módulo
+  temPortas       Boolean @default(false)
+  temGavetas      Boolean @default(false)
+  temPrateleiras  Boolean @default(false)
+  temFundo        Boolean @default(true)
+  temTravessas    Boolean @default(true)
+
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Fórmulas de cálculo das peças (JSON)
+  formulasPecas String @default("[]") // JSON com regras de cálculo
+
+  // Acessórios padrão do módulo
+  acessorios ModuloAcessorio[]
+
+  // Módulos criados a partir deste template
+  modulos Modulo[]
+}
+
+model ModuloAcessorio {
+  id              String         @id @default(cuid())
+  moduloTemplate  ModuloTemplate @relation(fields: [moduloTemplateId], references: [id], onDelete: Cascade)
+  moduloTemplateId String
+  acessorio       Acessorio      @relation(fields: [acessorioId], references: [id])
+  acessorioId     String
+  quantidade      Float          @default(1)
+  formulaQtd      String?        // fórmula para calcular quantidade baseada em dimensões
+}
+
+// ==========================================
+// PROJETOS E ORÇAMENTOS
+// ==========================================
+
+model Cliente {
+  id              String    @id @default(cuid())
+  nome            String
+  email           String?
+  telefone        String?
+  endereco        String?
+  cidade          String?
+  estado          String?
+  cep             String?
+  cpfCnpj         String?
+  comoConheceu    String?   // indicacao, instagram, google, etc
+  observacoes     String?
+  ativo           Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  projetos Projeto[]
+}
+
+model Projeto {
+  id          String   @id @default(cuid())
+  nome        String   // "Cozinha Completa", "Quarto Casal"
+  cliente     Cliente  @relation(fields: [clienteId], references: [id])
+  clienteId   String
+  ambiente    String?  // cozinha, quarto, sala, etc
+
+  // Status do projeto
+  status      String   @default("orcamento") // orcamento, aprovado, producao, montagem, entregue, cancelado
+
+  // Datas
+  dataOrcamento   DateTime @default(now())
+  dataAprovacao   DateTime?
+  dataPrevisao    DateTime?
+  dataEntrega     DateTime?
+
+  // Valores (calculados)
+  custoMateriais    Float @default(0)
+  custoAcessorios   Float @default(0)
+  custoTotal        Float @default(0)
+  valorVenda        Float @default(0)
+  lucro             Float @default(0)
+
+  // Método de precificação usado
+  metodoPrecificacao String @default("margem") // margem, multiplicador, metroQuadrado
+
+  observacoes String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  modulos   Modulo[]
+  acessorios ProjetoAcessorio[]
+}
+
+model Modulo {
+  id        String   @id @default(cuid())
+  projeto   Projeto  @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  projetoId String
+
+  template   ModuloTemplate? @relation(fields: [templateId], references: [id])
+  templateId String?
+
+  nome        String
+  quantidade  Int     @default(1)
+
+  // Dimensões do módulo
+  largura       Float
+  altura        Float
+  profundidade  Float
+
+  // Opções específicas
+  qtdPortas         Int   @default(0)
+  qtdGavetas        Int   @default(0)
+  qtdPrateleiras    Int   @default(0)
+  dobradicasPorPorta Int  @default(2)
+  recuoPrateleira   Float @default(5)
+  avancoTamponamento Float @default(0)
+  descontoFundo     Float @default(0)
+
+  // Seleção de materiais
+  chapaCorpoId    String?
+  chapaFundoId    String?
+  chapaPortaId    String?
+
+  // Custos calculados
+  custoChapas     Float @default(0)
+  custoBordas     Float @default(0)
+  custoAcessorios Float @default(0)
+  custoTotal      Float @default(0)
+
+  ordem     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pecas Peca[]
+}
+
+model Peca {
+  id        String  @id @default(cuid())
+  modulo    Modulo  @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  moduloId  String
+
+  quantidade    Int
+  comprimento   Float     // mm
+  largura       Float     // mm
+  funcao        String    // base, lateral, porta, prateleira, travessa, fundo, frente_gaveta, etc
+
+  // Material
+  chapa     Chapa?  @relation(fields: [chapaId], references: [id])
+  chapaId   String?
+
+  // Fitas de borda (comprimento em mm, 0 = sem fita)
+  fitaC1    Float   @default(0) // comprimento lado 1
+  fitaC2    Float   @default(0) // comprimento lado 2
+  fitaL1    Float   @default(0) // largura lado 1
+  fitaL2    Float   @default(0) // largura lado 2
+
+  // Área calculada
+  areaM2    Float   @default(0)
+
+  ordem     Int     @default(0)
+  createdAt DateTime @default(now())
+}
+
+model ProjetoAcessorio {
+  id          String    @id @default(cuid())
+  projeto     Projeto   @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  projetoId   String
+  acessorio   Acessorio @relation(fields: [acessorioId], references: [id])
+  acessorioId String
+  quantidade  Float
+  valorUnit   Float
+  valorTotal  Float
+}
+
+// ==========================================
+// HISTÓRICO E LOGS
+// ==========================================
+
+model HistoricoPreco {
+  id          String   @id @default(cuid())
+  tipo        String   // chapa, borda, acessorio
+  itemId      String
+  itemNome    String
+  precoAntigo Float
+  precoNovo   Float
+  createdAt   DateTime @default(now())
+}
